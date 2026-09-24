@@ -18,6 +18,12 @@ async def vapi_webhook(request: Request, db: Session = Depends(get_db)):
     return {}
 
 
+@router.post("/vapi/end-call")
+async def vapi_end_call(request: Request):
+    """Called by the backend to signal Vapi to hang up."""
+    return {"type": "end-call"}
+
+
 @router.post("/vapi/chat")
 async def vapi_chat(request: Request, db: Session = Depends(get_db)):
     try:

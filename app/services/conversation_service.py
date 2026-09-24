@@ -92,20 +92,22 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         uncertain = set(analysis.uncertain_fields or [])
         safe_extracted = {k: v for k, v in analysis.extracted_fields.items() if k not in uncertain}
 
-        extracted_keys = set(safe_extracted.keys())
-        if (
-            "first_name" in extracted_keys
-            and "last_name" not in extracted_keys
-            and not patient_data.get("first_name")
-            and not patient_data.get("last_name")
-            and not asking_for_first
-            and not asking_for_last
-        ):
-            patient_data["_pending_name"] = safe_extracted.pop("first_name")
-            uncertain.add("first_name")
-        elif "name_ambiguous" in (analysis.extracted_fields or {}):
+        # Handle name_ambiguous from extracted_fields (before safe_extracted strips it)
+        if "name_ambiguous" in (analysis.extracted_fields or {}):
             patient_data["_pending_name"] = analysis.extracted_fields["name_ambiguous"]
             safe_extracted.pop("name_ambiguous", None)
+        else:
+            extracted_keys = set(safe_extracted.keys())
+            if (
+                "first_name" in extracted_keys
+                and "last_name" not in extracted_keys
+                and not patient_data.get("first_name")
+                and not patient_data.get("last_name")
+                and not asking_for_first
+                and not asking_for_last
+            ):
+                patient_data["_pending_name"] = safe_extracted.pop("first_name")
+                uncertain.add("first_name")
 
         patient_data, validation_errors = registration_service.apply_extracted_fields(
             patient_data,

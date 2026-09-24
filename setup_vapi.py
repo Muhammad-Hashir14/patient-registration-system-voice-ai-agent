@@ -29,7 +29,6 @@ ASSISTANT_PAYLOAD = {
         "url": f"{RAILWAY_URL}/vapi/chat",
         "model": "gemini",
         "messages": [],
-        "stream": True,
     },
     "voice": {
         "provider": "vapi",
@@ -41,8 +40,8 @@ ASSISTANT_PAYLOAD = {
         "language": "en",
     },
     "endCallMessage": "Thank you. Goodbye!",
-    "endCallPhrases": ["goodbye", "bye", "thank you goodbye"],
-    "silenceTimeoutSeconds": 30,
+    "endCallPhrases": [],
+    "silenceTimeoutSeconds": 60,
     "maxDurationSeconds": 600,
 }
 
