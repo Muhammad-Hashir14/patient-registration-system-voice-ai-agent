@@ -1,9 +1,7 @@
 import json
 import logging
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from app.database.connection import get_db
 from app.services import conversation_service
 
 router = APIRouter()
@@ -11,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/vapi")
-async def vapi_webhook(request: Request, db: Session = Depends(get_db)):
+async def vapi_webhook(request: Request):
     body = await request.json()
     msg_type = body.get("message", {}).get("type", "")
     logger.info(f"[VAPI EVENT] type={msg_type}")
@@ -25,10 +23,13 @@ async def vapi_end_call(request: Request):
 
 
 @router.post("/vapi/chat")
-async def vapi_chat(request: Request, db: Session = Depends(get_db)):
+async def vapi_chat(request: Request):
     body = await request.json()
+    logger.info(f"[VAPI CHAT RAW] {json.dumps(body)[:500]}")
+
     messages = body.get("messages", [])
-    call_id = body.get("call", {}).get("id", "unknown")
+    # Vapi sends call id either nested under "call" or at top level as "callId"
+    call_id = body.get("call", {}).get("id") or body.get("callId", "unknown")
     session_id = f"vapi-{call_id}"
 
     user_text = None
@@ -38,16 +39,15 @@ async def vapi_chat(request: Request, db: Session = Depends(get_db)):
             break
 
     return StreamingResponse(
-        _process_and_stream(db, session_id, user_text),
+        _process_and_stream(session_id, user_text),
         media_type="text/event-stream",
     )
 
 
-async def _process_and_stream(db, session_id: str, user_text: str | None):
-    """Process message and stream response. Yields keepalive comment first to prevent timeout."""
+async def _process_and_stream(session_id: str, user_text: str | None):
+    """Process message and stream response. Creates its own DB session for thread safety."""
     import asyncio
-    # Yield a keepalive comment immediately so Vapi knows the connection is alive
-    yield ": keepalive\n\n"
+    from app.database.connection import SessionLocal
 
     try:
         if not user_text:
@@ -55,12 +55,17 @@ async def _process_and_stream(db, session_id: str, user_text: str | None):
         else:
             logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: conversation_service.process_message(
-                    db=db, session_id=session_id, user_message=user_text
-                )
-            )
+
+            def _run():
+                db = SessionLocal()
+                try:
+                    return conversation_service.process_message(
+                        db=db, session_id=session_id, user_message=user_text
+                    )
+                finally:
+                    db.close()
+
+            result = await loop.run_in_executor(None, _run)
             reply = result["message"]
             logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
     except Exception as e:
