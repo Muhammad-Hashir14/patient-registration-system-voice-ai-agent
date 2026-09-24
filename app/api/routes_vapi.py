@@ -10,34 +10,37 @@ logger = logging.getLogger(__name__)
 
 @router.post("/vapi")
 async def vapi_webhook(request: Request, db: Session = Depends(get_db)):
+    """Handles Vapi server-side events (call start, end, status updates)."""
     body = await request.json()
     message = body.get("message", {})
     msg_type = message.get("type", "")
+    logger.info(f"[VAPI EVENT] type={msg_type}")
+    return {}
 
-    logger.info(f"[VAPI] received message type: {msg_type}")
 
-    # Only process conversation-update — this fires once per user turn with the final transcript
-    # Ignore "transcript" events (partial/interim) to avoid duplicate processing
-    if msg_type != "conversation-update":
-        return {}
+@router.post("/vapi/chat")
+async def vapi_chat(request: Request, db: Session = Depends(get_db)):
+    """
+    OpenAI-compatible chat completions endpoint for Vapi custom LLM.
+    Vapi sends the full conversation as messages array.
+    We extract the last user message and run it through our registration agent.
+    """
+    body = await request.json()
+    messages = body.get("messages", [])
+    call_id = body.get("call", {}).get("id", "unknown")
+    session_id = f"vapi-{call_id}"
 
-    artifact = message.get("artifact", {})
-    messages = artifact.get("messages", [])
-
-    # Find the last user message
+    # Get last user message
     user_text = None
     for m in reversed(messages):
         if m.get("role") == "user":
-            user_text = m.get("message") or m.get("content", "")
+            user_text = m.get("content", "").strip()
             break
 
     if not user_text:
-        return {}
+        return _chat_response("I didn't catch that. Could you please repeat?")
 
-    call_id = message.get("call", {}).get("id", "unknown")
-    session_id = f"vapi-{call_id}"
-
-    logger.info(f"[VAPI] call={call_id} user said: {user_text}")
+    logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
 
     result = conversation_service.process_message(
         db=db,
@@ -45,10 +48,22 @@ async def vapi_webhook(request: Request, db: Session = Depends(get_db)):
         user_message=user_text,
     )
 
-    logger.info(f"[VAPI] call={call_id} agent response: {result['message']}")
+    reply = result["message"]
+    logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
 
+    return _chat_response(reply)
+
+
+def _chat_response(content: str) -> dict:
+    """Returns OpenAI-compatible chat completion response."""
     return {
-        "messages": [
-            {"role": "assistant", "content": result["message"]}
-        ]
+        "id": "chatcmpl-vapi",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
     }

@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 _client = None
 
+
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
@@ -16,31 +17,69 @@ def _get_client() -> genai.Client:
     return _client
 
 
-SYSTEM_PROMPT = """You are a patient registration assistant. Analyze the user message and return ONLY valid JSON.
+# Single source of truth for the system prompt.
+# Gemini handles NLU only — backend owns all state, validation, and DB ops.
+SYSTEM_PROMPT = """You are a warm, professional patient registration assistant for a medical clinic.
+This is a VOICE call — keep ALL responses to 1-2 short sentences maximum.
 
-Patient fields:
-Required: first_name, last_name, date_of_birth (YYYY-MM-DD), sex (male/female/other/prefer not to say), phone_number, address_line_1, city, state, zip_code
-Optional: email, address_line_2, insurance_provider, insurance_member_id, preferred_language, emergency_contact_name, emergency_contact_phone
+== CALL INTENT ==
+At the start of a call, if the caller hasn't stated their purpose, ask:
+"Are you calling to register as a new patient, look up your existing information, or update your record?"
+Detect intent from their response:
+- "new_registration" — caller wants to register
+- "lookup" — caller wants to find their record
+- "update" — caller wants to update their record
+- If they just start giving info, assume new_registration.
 
-Rules:
-- Extract ALL fields mentioned in the message
-- Put corrections (actually/I meant/wait) in corrected_fields
-- Never guess — "I'm 35" does NOT give date_of_birth
-- Keep suggested_response short (1-2 sentences), warm, professional
-- confirmation_response: "yes" if confirming summary, "no" if rejecting, null otherwise
+== REGISTRATION RULES ==
+- Extract ALL fields mentioned in a single message.
+- Detect corrections ("actually", "I meant", "wait") → put in corrected_fields.
+- Never guess — "I'm 35" does NOT give date_of_birth.
+- For state: always convert to 2-letter abbreviation (Texas → TX, California → CA).
+- For sex: accepted values are male, female, other, decline to answer.
+- For email: caller may spell it out verbally (e.g. "mark at gmail dot com" → mark@gmail.com). Convert spoken email to proper format.
+- For phone: extract digits only, must be exactly 10 US digits.
 
-Return ONLY this JSON:
-{
-  "intents": ["greeting"|"provide_info"|"correction"|"question"|"confirmation"|"small_talk"|"unrelated"|"pause"],
-  "extracted_fields": {},
-  "corrected_fields": {},
+== NAME RULES ==
+- Single name only (e.g. "I'm Hashir") → add "name_ambiguous" to uncertain_fields, ask "Is that your first or last name?"
+- Full name (e.g. "John Smith") → extract first_name and last_name directly.
+- Ambiguous spelling (Sara/Sarah, Jon/John) → add field to uncertain_fields, ask caller to spell it.
+- Caller spells letter by letter → extract exactly, do NOT flag as uncertain.
+
+== OPTIONAL FIELDS ==
+When all required fields are collected, ask as a group:
+"Do you have any current insurance? Also, would you like to provide an emergency contact or preferred language?"
+- If yes to insurance → ask: "What's your insurance provider name and member ID?"
+- If yes to emergency contact → ask: "What's the name and phone number for your emergency contact?"
+- If no / skip → move on to confirmation.
+Do NOT ask for each optional field individually.
+
+== CONFIRMATION ==
+- confirmation_response: "yes" if confirming the summary, "no" if rejecting, null otherwise.
+
+Required fields: first_name, last_name, date_of_birth (YYYY-MM-DD), sex, phone_number, address_line_1, city, state, zip_code
+Optional fields: email, address_line_2, insurance_provider, insurance_member_id, preferred_language, emergency_contact_name, emergency_contact_phone
+
+Current collected data: {collected_data}
+Missing required fields: {missing_fields}
+Registration status: {registration_status}
+
+Recent conversation:
+{conversation_history}
+
+Return ONLY valid JSON — no markdown, no explanation:
+{{
+  "intents": ["new_registration"|"lookup"|"update"|"greeting"|"provide_info"|"correction"|"question"|"confirmation"|"small_talk"|"unrelated"|"pause"],
+  "extracted_fields": {{}},
+  "corrected_fields": {{}},
   "user_question": null,
   "needs_clarification": false,
   "clarification_reason": null,
+  "uncertain_fields": [],
   "registration_relevant": true,
   "confirmation_response": null,
   "suggested_response": "..."
-}"""
+}}"""
 
 
 def analyze_message(
@@ -50,19 +89,17 @@ def analyze_message(
     registration_status: str,
     conversation_history: list[dict],
 ) -> ConversationAnalysis:
-    # Last 4 turns only
     history_text = "\n".join(
         f"{t['role'].capitalize()}: {t['content']}"
         for t in conversation_history[-4:]
     )
 
-    user_prompt = f"""Collected: {json.dumps(collected_data, default=str) or "{}"}
-Missing: {", ".join(missing_fields) or "none"}
-Status: {registration_status}
-History:
-{history_text or "None"}
-
-User: {message}"""
+    user_prompt = SYSTEM_PROMPT.format(
+        collected_data=json.dumps(collected_data, default=str) if collected_data else "{}",
+        missing_fields=", ".join(missing_fields) if missing_fields else "none",
+        registration_status=registration_status,
+        conversation_history=history_text or "None",
+    ) + f"\n\nUser: {message}"
 
     client = _get_client()
 
@@ -71,9 +108,8 @@ User: {message}"""
             model="gemini-3.5-flash-lite",
             contents=user_prompt,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
                 temperature=0.3,
-                max_output_tokens=512,
+                max_output_tokens=600,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         )
@@ -83,11 +119,10 @@ User: {message}"""
             if raw.startswith("json"):
                 raw = raw[4:]
         parsed = json.loads(raw.strip())
-        # Ensure uncertain_fields always exists
         parsed.setdefault("uncertain_fields", [])
         return ConversationAnalysis(**parsed)
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON from Gemini: {e}")
+        logger.error(f"Invalid JSON from Gemini: {e}\nRaw: {raw}")
         raise ValueError(f"LLM returned invalid JSON: {e}")
     except Exception as e:
         logger.error(f"Gemini call failed: {e}")
