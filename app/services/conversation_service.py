@@ -147,16 +147,22 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     pending_name = patient_data.get("_pending_name")
     if pending_name:
         msg_lower = user_message.lower()
-        if asking_for_first or any(w in msg_lower for w in ["first", "given", "my first"]):
-            patient_data["first_name"] = pending_name
-            patient_data.pop("_pending_name", None)
-            logger.info(f"[NAME RESOLVED] first_name={pending_name}")
-        elif asking_for_last or any(w in msg_lower for w in ["last", "surname", "family", "my last"]):
+        # Check user's message keywords first (most reliable signal)
+        says_last = any(w in msg_lower for w in ["last", "surname", "family", "my last"])
+        says_first = any(w in msg_lower for w in ["first", "given", "my first"])
+        # LLM may have already resolved it directly into extracted_fields
+        llm_resolved_last = "last_name" in (analysis.extracted_fields or {}) and not says_first
+        llm_resolved_first = "first_name" in (analysis.extracted_fields or {}) and not says_last
+
+        if says_last or (asking_for_last and not asking_for_first) or llm_resolved_last:
             patient_data["last_name"] = pending_name
             patient_data.pop("_pending_name", None)
             logger.info(f"[NAME RESOLVED] last_name={pending_name}")
+        elif says_first or (asking_for_first and not asking_for_last) or llm_resolved_first:
+            patient_data["first_name"] = pending_name
+            patient_data.pop("_pending_name", None)
+            logger.info(f"[NAME RESOLVED] first_name={pending_name}")
         else:
-            # Could not resolve — re-ask clearly
             logger.info(f"[NAME UNRESOLVED] pending={pending_name} message={user_message}")
 
     # --- Recalculate missing after extraction ---
@@ -300,7 +306,8 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         if validation_errors:
             response_message = _sanitize(validation_errors[0])
         elif patient_data.get("_pending_name"):
-            response_message = f"Is {patient_data['_pending_name']} your first name or last name?"
+            pn = patient_data['_pending_name']
+            response_message = f"Is {pn} your first name or your last name?"
         elif missing:
             response_message = _next_question(missing)
         else:
