@@ -26,57 +26,62 @@ async def vapi_end_call(request: Request):
 
 @router.post("/vapi/chat")
 async def vapi_chat(request: Request, db: Session = Depends(get_db)):
+    body = await request.json()
+    messages = body.get("messages", [])
+    call_id = body.get("call", {}).get("id", "unknown")
+    session_id = f"vapi-{call_id}"
+
+    user_text = None
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            user_text = m.get("content", "").strip()
+            break
+
+    return StreamingResponse(
+        _process_and_stream(db, session_id, user_text),
+        media_type="text/event-stream",
+    )
+
+
+async def _process_and_stream(db, session_id: str, user_text: str | None):
+    """Process message and stream response. Yields keepalive comment first to prevent timeout."""
+    import asyncio
+    # Yield a keepalive comment immediately so Vapi knows the connection is alive
+    yield ": keepalive\n\n"
+
     try:
-        body = await request.json()
-        messages = body.get("messages", [])
-        call_id = body.get("call", {}).get("id", "unknown")
-        session_id = f"vapi-{call_id}"
-        stream = body.get("stream", False)
-
-        user_text = None
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                user_text = m.get("content", "").strip()
-                break
-
         if not user_text:
             reply = "I didn't catch that. Could you please repeat?"
         else:
             logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
-            result = conversation_service.process_message(
-                db=db,
-                session_id=session_id,
-                user_message=user_text,
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: conversation_service.process_message(
+                    db=db, session_id=session_id, user_message=user_text
+                )
             )
             reply = result["message"]
             logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
-
-        if stream:
-            return StreamingResponse(
-                _stream_response(reply),
-                media_type="text/event-stream",
-            )
-        return _chat_response(reply)
-
     except Exception as e:
         logger.error(f"[VAPI CHAT ERROR] {e}", exc_info=True)
         reply = "I'm sorry, I had a technical issue. Could you please repeat that?"
-        if body.get("stream", False):
-            return StreamingResponse(
-                _stream_response(reply),
-                media_type="text/event-stream",
-            )
-        return _chat_response(reply)
+
+    async for chunk in _stream_response(reply):
+        yield chunk
 
 
 async def _stream_response(content: str):
-    """Yield OpenAI-compatible SSE chunks then a [DONE] event."""
-    chunk = {
-        "id": "chatcmpl-vapi",
-        "object": "chat.completion.chunk",
-        "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
-    }
-    yield f"data: {json.dumps(chunk)}\n\n"
+    """Yield OpenAI-compatible SSE chunks word by word, then [DONE]."""
+    words = content.split(" ")
+    for i, word in enumerate(words):
+        text = word if i == len(words) - 1 else word + " "
+        chunk = {
+            "id": "chatcmpl-vapi",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": None}],
+        }
+        yield f"data: {json.dumps(chunk)}\n\n"
     done_chunk = {
         "id": "chatcmpl-vapi",
         "object": "chat.completion.chunk",
