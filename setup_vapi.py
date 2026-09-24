@@ -26,7 +26,7 @@ ASSISTANT_PAYLOAD = {
     "serverUrl": f"{RAILWAY_URL}/vapi",
     "model": {
         "provider": "custom-llm",
-        "url": f"{RAILWAY_URL}/vapi/chat",
+        "url": f"{RAILWAY_URL}/vapi",
         "model": "gemini",
         "messages": [],
     },
@@ -43,7 +43,6 @@ ASSISTANT_PAYLOAD = {
     "endCallPhrases": [],
     "silenceTimeoutSeconds": 60,
     "maxDurationSeconds": 600,
-    "serverUrlSecret": None,
     "server": {
         "url": f"{RAILWAY_URL}/vapi",
         "timeoutSeconds": 60,
@@ -58,25 +57,25 @@ def sync_assistant() -> str | None:
 
     if existing:
         assistant_id = existing["id"]
-        r = requests.patch(f"{VAPI_BASE}/assistant/{assistant_id}", json=ASSISTANT_PAYLOAD, headers=HEADERS)
-        if r.status_code not in (200, 201):
-            print(f"FAILED to update assistant: {r.text}")
+        # DELETE and recreate — PATCH does not reliably update model provider on existing assistants
+        d = requests.delete(f"{VAPI_BASE}/assistant/{assistant_id}", headers=HEADERS)
+        if d.status_code not in (200, 204):
+            print(f"FAILED to delete assistant: {d.text}")
             return None
-        result = r.json()
-        print(f"Updated assistant: {assistant_id}")
-        print(f"  model.provider : {result.get('model', {}).get('provider')}")
-        print(f"  model.url      : {result.get('model', {}).get('url')}")
-        print(f"  endCallPhrases : {result.get('endCallPhrases')}")
-        print(f"  silenceTimeout : {result.get('silenceTimeoutSeconds')}")
-        print(f"  serverTimeout  : {result.get('server', {}).get('timeoutSeconds')}")
-    else:
-        r = requests.post(f"{VAPI_BASE}/assistant", json=ASSISTANT_PAYLOAD, headers=HEADERS)
-        if r.status_code not in (200, 201):
-            print(f"FAILED to create assistant: {r.text}")
-            return None
-        assistant_id = r.json()["id"]
-        print(f"Created assistant: {assistant_id}")
+        print(f"Deleted old assistant: {assistant_id}")
 
+    r = requests.post(f"{VAPI_BASE}/assistant", json=ASSISTANT_PAYLOAD, headers=HEADERS)
+    if r.status_code not in (200, 201):
+        print(f"FAILED to create assistant: {r.text}")
+        return None
+    result = r.json()
+    assistant_id = result["id"]
+    print(f"Created assistant: {assistant_id}")
+    print(f"  model.provider : {result.get('model', {}).get('provider')}")
+    print(f"  model.url      : {result.get('model', {}).get('url')}")
+    print(f"  endCallPhrases : {result.get('endCallPhrases')}")
+    print(f"  silenceTimeout : {result.get('silenceTimeoutSeconds')}")
+    print(f"  serverTimeout  : {result.get('server', {}).get('timeoutSeconds')}")
     return assistant_id
 
 
