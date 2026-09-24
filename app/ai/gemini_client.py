@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from google import genai
 from google.genai import types
 from app.core.config import settings
@@ -115,28 +116,34 @@ def analyze_message(
 
     client = _get_client()
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=600,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            ),
-        )
-        raw = response.text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        parsed = json.loads(raw.strip())
-        parsed.setdefault("uncertain_fields", [])
-        return ConversationAnalysis(**parsed)
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON from Gemini: {e}\nRaw: {raw}")
-        raise ValueError(f"LLM returned invalid JSON: {e}")
-    except Exception as e:
-        logger.error(f"Gemini call failed: {e}")
-        print(f"[GEMINI ERROR] {e}")
-        raise
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=600,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+            raw = response.text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            parsed = json.loads(raw.strip())
+            parsed.setdefault("uncertain_fields", [])
+            return ConversationAnalysis(**parsed)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON from Gemini: {e}\nRaw: {raw}")
+            raise ValueError(f"LLM returned invalid JSON: {e}")
+        except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                wait = 2 ** attempt
+                logger.warning(f"Gemini 503, retrying in {wait}s (attempt {attempt+1}/3)")
+                time.sleep(wait)
+                continue
+            logger.error(f"Gemini call failed: {e}")
+            print(f"[GEMINI ERROR] {e}")
+            raise

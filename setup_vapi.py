@@ -57,7 +57,12 @@ def sync_assistant() -> str | None:
         if r.status_code not in (200, 201):
             print(f"FAILED to update assistant: {r.text}")
             return None
+        result = r.json()
         print(f"Updated assistant: {assistant_id}")
+        print(f"  model.provider : {result.get('model', {}).get('provider')}")
+        print(f"  model.url      : {result.get('model', {}).get('url')}")
+        print(f"  endCallPhrases : {result.get('endCallPhrases')}")
+        print(f"  silenceTimeout : {result.get('silenceTimeoutSeconds')}")
     else:
         r = requests.post(f"{VAPI_BASE}/assistant", json=ASSISTANT_PAYLOAD, headers=HEADERS)
         if r.status_code not in (200, 201):

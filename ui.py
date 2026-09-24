@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import uuid
 
-API_BASE = "http://localhost:8000"
+API_BASE = "https://web-production-82a93.up.railway.app"
 
 st.set_page_config(page_title="Patient Registration Agent", page_icon="🏥", layout="centered")
 st.title("🏥 Patient Registration Assistant")
