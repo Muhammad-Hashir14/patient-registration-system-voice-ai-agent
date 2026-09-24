@@ -1,15 +1,15 @@
 """
 Run this script whenever you want to sync Vapi assistant settings.
-The Railway URL is fixed — no argument needed.
 
 Usage:
     python setup_vapi.py
 """
 import requests
+from app.core.config import settings
 
-VAPI_API_KEY = "b2c8f50d-f76e-4bb4-8116-13f1f20f88c4"
+VAPI_API_KEY = settings.VAPI_API_KEY
 VAPI_BASE = "https://api.vapi.ai"
-RAILWAY_URL = "https://web-production-82a93.up.railway.app"
+RAILWAY_URL = settings.RAILWAY_URL
 
 HEADERS = {
     "Authorization": f"Bearer {VAPI_API_KEY}",
