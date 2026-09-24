@@ -39,10 +39,15 @@ ASSISTANT_PAYLOAD = {
         "model": "nova-2",
         "language": "en",
     },
-    "endCallMessage": "Thank you. Goodbye!",
+    "endCallMessage": "Thank you. Have a great day!",
     "endCallPhrases": [],
     "silenceTimeoutSeconds": 60,
     "maxDurationSeconds": 600,
+    "serverUrlSecret": None,
+    "server": {
+        "url": f"{RAILWAY_URL}/vapi",
+        "timeoutSeconds": 60,
+    },
 }
 
 
@@ -63,6 +68,7 @@ def sync_assistant() -> str | None:
         print(f"  model.url      : {result.get('model', {}).get('url')}")
         print(f"  endCallPhrases : {result.get('endCallPhrases')}")
         print(f"  silenceTimeout : {result.get('silenceTimeoutSeconds')}")
+        print(f"  serverTimeout  : {result.get('server', {}).get('timeoutSeconds')}")
     else:
         r = requests.post(f"{VAPI_BASE}/assistant", json=ASSISTANT_PAYLOAD, headers=HEADERS)
         if r.status_code not in (200, 201):

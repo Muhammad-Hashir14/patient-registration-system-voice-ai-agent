@@ -56,8 +56,15 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         {k: v for k, v in patient_data.items() if not k.startswith("_")}
     )
 
+    # On the very first Vapi turn, history is empty because Vapi's firstMessage
+    # is spoken directly by Vapi and never stored. Inject it as context so Gemini
+    # knows a full name was requested.
+    effective_history = history
+    if not history and session_id.startswith("vapi-"):
+        effective_history = [{"role": "assistant", "content": "Hello! I'm your patient registration assistant. May I have your full name to get started?"}]
+
     # Pass the last question asked as a hint so Gemini knows what field was being collected
-    last_question = history[-1]["content"] if history and history[-1]["role"] == "assistant" else ""
+    last_question = effective_history[-1]["content"] if effective_history and effective_history[-1]["role"] == "assistant" else ""
 
     # --- Call Gemini for extraction only ---
     try:
@@ -66,7 +73,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             collected_data=patient_data,
             missing_fields=missing,
             registration_status=status,
-            conversation_history=history,
+            conversation_history=effective_history,
             last_question=last_question,
         )
         logger.info(f"[GEMINI] session={session_id} extracted={analysis.extracted_fields} uncertain={analysis.uncertain_fields} confirmation={analysis.confirmation_response}")
@@ -171,7 +178,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             else:
                 status = "completed"
                 logger.info(f"[REGISTRATION COMPLETE] session={session_id} patient_id={patient.patient_id}")
-                response_message = f"You're all set, {patient_data.get('first_name')}! Your registration is saved. Your patient ID is {patient.patient_id}. Goodbye!"
+                response_message = f"You're all set, {patient_data.get('first_name')}! Your registration is complete. Your patient ID is {patient.patient_id}. Have a great day!"
         elif analysis.confirmation_response == "no":
             status = "in_progress"
             response_message = "No problem. Which field would you like to change? For example, name, date of birth, phone number, or address?"
@@ -192,7 +199,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
                     update_data = PatientUpdate(**{k: v for k, v in patient_data.items() if not k.startswith("_")})
                     update_patient(db, dup_id, update_data)
                     status = "completed"
-                    response_message = f"Your record has been updated. Patient ID: {dup_id}. Goodbye!"
+                    response_message = f"Your record has been updated. Patient ID: {dup_id}. Have a great day!"
                 except Exception as e:
                     logger.error(f"[UPDATE ERROR] {e}")
                     response_message = "I had trouble updating your record. Please try again."
