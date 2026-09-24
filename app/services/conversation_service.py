@@ -84,12 +84,31 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
 
     # --- Apply extracted/corrected fields ---
     validation_errors = []
+    uncertain = set()
     if analysis.extracted_fields or analysis.corrected_fields:
         uncertain = set(analysis.uncertain_fields or [])
         safe_extracted = {k: v for k, v in analysis.extracted_fields.items() if k not in uncertain}
 
-        if "name_ambiguous" in uncertain and "name_ambiguous" in analysis.extracted_fields:
+        # Backend-level single-name detection — don't trust Gemini alone for this.
+        # If only first_name was extracted and last_name is missing and no last_name in message,
+        # treat it as ambiguous unless the last question was specifically asking for first or last name.
+        extracted_keys = set(safe_extracted.keys())
+        asking_for_first = "first name" in last_question.lower()
+        asking_for_last = "last name" in last_question.lower()
+        if (
+            "first_name" in extracted_keys
+            and "last_name" not in extracted_keys
+            and not patient_data.get("first_name")  # not already collected
+            and not patient_data.get("last_name")    # not already collected
+            and not asking_for_first
+            and not asking_for_last
+        ):
+            # Single name given with no context — store as pending and ask
+            patient_data["_pending_name"] = safe_extracted.pop("first_name")
+            uncertain.add("first_name")
+        elif "name_ambiguous" in (analysis.extracted_fields or {}):
             patient_data["_pending_name"] = analysis.extracted_fields["name_ambiguous"]
+            safe_extracted.pop("name_ambiguous", None)
 
         patient_data, validation_errors = registration_service.apply_extracted_fields(
             patient_data,
@@ -101,10 +120,10 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     pending_name = patient_data.get("_pending_name")
     if pending_name:
         msg_lower = user_message.lower()
-        if any(w in msg_lower for w in ["first", "given"]):
+        if asking_for_first or any(w in msg_lower for w in ["first", "given"]):
             patient_data["first_name"] = pending_name
             patient_data.pop("_pending_name", None)
-        elif any(w in msg_lower for w in ["last", "surname", "family"]):
+        elif asking_for_last or any(w in msg_lower for w in ["last", "surname", "family"]):
             patient_data["last_name"] = pending_name
             patient_data.pop("_pending_name", None)
 
@@ -113,7 +132,23 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         {k: v for k, v in patient_data.items() if not k.startswith("_")}
     )
 
-    # --- Build response — backend owns all logic, Gemini only used for uncertain/clarification ---
+    # --- Echo back newly extracted fields for confirmation ---
+    # For fields that are easy to mishear, repeat back what was captured
+    ECHO_FIELDS = {
+        "first_name": lambda v: f"Got it, first name {v}.",
+        "last_name": lambda v: f"Last name {v}.",
+        "date_of_birth": lambda v: f"Date of birth {v}.",
+        "phone_number": lambda v: f"Phone number {v}.",
+        "zip_code": lambda v: f"ZIP code {v}.",
+    }
+    newly_extracted = [
+        k for k in (analysis.extracted_fields or {})
+        if k in ECHO_FIELDS and k not in uncertain and k in patient_data and not validation_errors
+    ]
+    echo_prefix = " ".join(ECHO_FIELDS[k](patient_data[k]) for k in newly_extracted if k in patient_data)
+
+
+    # --- Build response — backend owns all logic ---
     response_message = ""
 
     if status == "pending_confirmation":
@@ -250,6 +285,10 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
                     "Great, I have all the required information. "
                     "Do you have any current insurance? Also, would you like to provide an emergency contact or preferred language?"
                 )
+
+    # Prepend echo of what was just captured (for key fields) so caller can catch mishearing
+    if echo_prefix and status not in ("pending_confirmation", "completed") and not validation_errors:
+        response_message = f"{echo_prefix} {response_message}"
 
     # --- Persist state ---
     history.append({"role": "user", "content": user_message})

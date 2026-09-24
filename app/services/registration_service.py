@@ -77,22 +77,22 @@ def _validate_single_field(field: str, value) -> str | None:
     from app.utils.validation import normalize_phone, normalize_zip, validate_sex, validate_email, validate_state, validate_name
     if field in ("first_name", "last_name"):
         if not validate_name(str(value)):
-            return f"'{value}' doesn't look like a valid name. Please use letters, hyphens, or apostrophes only (1-50 characters)."
+            return f"That doesn't look like a valid name. Could you please spell it out?"
     elif field == "phone_number":
         if not normalize_phone(str(value)):
-            return f"'{value}' doesn't look like a valid US phone number. Please provide a 10-digit number."
+            return f"That doesn't look like a valid US phone number. Could you please provide your 10-digit phone number?"
     elif field == "state":
         if not validate_state(str(value)):
-            return f"'{value}' isn't a valid US state. Please provide a 2-letter abbreviation like TX or CA."
+            return f"I didn't catch a valid US state. Could you give me the two-letter abbreviation, like TX for Texas or CA for California?"
     elif field == "zip_code":
         if not normalize_zip(str(value)):
-            return f"'{value}' doesn't look like a valid US ZIP code."
+            return f"That doesn't look like a valid ZIP code. Could you please repeat your 5-digit ZIP code?"
     elif field == "sex":
         if not validate_sex(str(value)):
-            return f"For sex, I can accept male, female, other, or decline to answer."
+            return f"For gender, I can accept male, female, other, or decline to answer. Which would you prefer?"
     elif field == "email":
         if not validate_email(str(value)):
-            return f"'{value}' doesn't look like a valid email address."
+            return f"That doesn't look like a valid email address. Could you repeat it?"
     elif field == "date_of_birth":
         try:
             dob = _parse_date(value)
@@ -101,7 +101,7 @@ def _validate_single_field(field: str, value) -> str | None:
             if err:
                 return err
         except Exception:
-            return f"I couldn't parse '{value}' as a date. Could you provide it as MM/DD/YYYY?"
+            return "I couldn't understand that date. Could you please say your date of birth again, for example October 5th, 1990?"
     return None
 
 

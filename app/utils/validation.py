@@ -45,9 +45,9 @@ def validate_dob(dob: date) -> str | None:
     """Return error string if DOB is invalid, else None."""
     today = date.today()
     if dob > today:
-        return "Date of birth cannot be in the future."
+        return "That date of birth is in the future. Could you please provide your correct date of birth?"
     if dob.year < 1900:
-        return "Date of birth seems too far in the past."
+        return "That date of birth seems too far in the past. Could you please repeat your date of birth?"
     return None
 
 
