@@ -30,6 +30,8 @@ first_name / last_name:
   "My name is Maria Garcia" → first_name=Maria, last_name=Garcia
   "It's Dr. Ahmed Khan" → first_name=Ahmed, last_name=Khan (ignore titles)
   "I'm Hashir" → single name, add name_ambiguous to uncertain_fields, extracted_fields={"name_ambiguous": "Hashir"}
+  "hashie" → single name (no last name present), extracted_fields={"name_ambiguous": "hashie"}, uncertain_fields=["name_ambiguous"]
+  RULE: If only ONE name token is given and no last name is present, ALWAYS use name_ambiguous — never extract as first_name alone.
 
 date_of_birth (output YYYY-MM-DD):
   "born October 1st 1997" → 1997-10-01

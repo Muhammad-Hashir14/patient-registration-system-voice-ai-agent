@@ -106,11 +106,27 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             safe_extracted.pop("name_ambiguous", None)
         else:
             extracted_keys = set(safe_extracted.keys())
+            # Backend-owned ambiguity rule: single word input with both name fields missing
+            # and agent wasn't specifically asking for first or last name → always ambiguous
+            user_words = user_message.strip().split()
+            single_word_input = len(user_words) == 1
+            both_names_missing = not patient_data.get("first_name") and not patient_data.get("last_name")
+            name_extracted = "first_name" in extracted_keys or "last_name" in extracted_keys
             if (
+                single_word_input
+                and both_names_missing
+                and name_extracted
+                and not asking_for_first
+                and not asking_for_last
+            ):
+                # Single word — could be first or last name, ask to clarify
+                name_value = safe_extracted.pop("first_name", None) or safe_extracted.pop("last_name", None)
+                patient_data["_pending_name"] = name_value
+                uncertain.update(["first_name", "last_name"])
+            elif (
                 "first_name" in extracted_keys
                 and "last_name" not in extracted_keys
-                and not patient_data.get("first_name")
-                and not patient_data.get("last_name")
+                and both_names_missing
                 and not asking_for_first
                 and not asking_for_last
             ):
