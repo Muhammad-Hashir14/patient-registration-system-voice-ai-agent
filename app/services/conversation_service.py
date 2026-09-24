@@ -69,6 +69,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             conversation_history=history,
             last_question=last_question,
         )
+        logger.info(f"[GEMINI] session={session_id} extracted={analysis.extracted_fields} uncertain={analysis.uncertain_fields} confirmation={analysis.confirmation_response}")
     except Exception as e:
         logger.error(f"Gemini failed: {e}")
         history.append({"role": "user", "content": user_message})
@@ -130,6 +131,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     missing = registration_service.get_missing_required_fields(
         {k: v for k, v in patient_data.items() if not k.startswith("_")}
     )
+    logger.info(f"[STATE] session={session_id} status={status} missing={missing} patient_data_keys={[k for k in patient_data if not k.startswith('_')]}")    
 
     # --- Echo back newly extracted fields for confirmation ---
     # For fields that are easy to mishear, repeat back what was captured
@@ -152,6 +154,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
 
     if status == "pending_confirmation":
         if analysis.confirmation_response == "yes":
+            logger.info(f"[SAVE ATTEMPT] session={session_id} patient_data={patient_data}")
             patient, error = registration_service.attempt_save_patient(db, patient_data)
             if error and error.startswith("DUPLICATE:"):
                 existing_id = error.split(":")[1]
