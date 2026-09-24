@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.conversation import ConversationSession
@@ -19,6 +20,17 @@ FIELD_QUESTIONS = {
     "state": "What state? Please give me the two-letter abbreviation, like TX or CA.",
     "zip_code": "What is your ZIP code?",
 }
+
+
+def _sanitize(text: str) -> str:
+    """Strip characters that cause Vapi TTS to misread or drop the call."""
+    # Replace smart quotes and apostrophes with plain equivalents
+    text = text.replace("\u2019", "").replace("\u2018", "").replace("'", "").replace('"', "")
+    # Remove brackets, slashes, underscores, pipes
+    text = re.sub(r"[\[\]{}|_/\\]", " ", text)
+    # Collapse multiple spaces
+    text = re.sub(r" +", " ", text).strip()
+    return text
 
 
 def _next_question(missing: list[str]) -> str:
@@ -289,9 +301,9 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         status = "in_progress"
 
         if validation_errors:
-            response_message = validation_errors[0]
+            response_message = _sanitize(validation_errors[0])
         elif patient_data.get("_pending_name"):
-            response_message = f"Is '{patient_data['_pending_name']}' your first name or last name?"
+            response_message = f"Is {patient_data['_pending_name']} your first name or last name?"
         elif missing:
             response_message = _next_question(missing)
         else:
@@ -314,6 +326,8 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     # Prepend echo of what was just captured (for key fields) so caller can catch mishearing
     if echo_prefix and status not in ("pending_confirmation", "completed") and not validation_errors:
         response_message = f"{echo_prefix} {response_message}"
+
+    response_message = _sanitize(response_message)
 
     # --- Persist state ---
     history.append({"role": "user", "content": user_message})
