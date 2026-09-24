@@ -210,29 +210,3 @@ UNDERSTAND → EXTRACT → VALIDATE → UPDATE STATE → RESPOND
 ```bash
 pytest tests/ -v
 ```
-
----
-
-## Project Structure
-
-```
-app/
-├── ai/
-│   ├── gemini_client.py     # Groq LLM client + prompt
-│   └── schemas.py           # ConversationAnalysis schema
-├── api/
-│   ├── routes_chat.py       # Text chat endpoint
-│   ├── routes_patients.py   # Patient CRUD endpoints
-│   └── routes_vapi.py       # Vapi custom LLM + webhook
-├── core/
-│   └── config.py            # Settings from .env
-├── models/                  # SQLAlchemy models
-├── schemas/                 # Pydantic schemas
-├── services/
-│   ├── conversation_service.py   # Main conversation logic
-│   ├── registration_service.py   # Validation + state
-│   └── patient_service.py        # DB operations
-└── utils/
-    └── validation.py        # Field validators
-setup_vapi.py                # Vapi assistant setup script
-```
