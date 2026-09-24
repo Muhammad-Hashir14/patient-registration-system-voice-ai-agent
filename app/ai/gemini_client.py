@@ -39,6 +39,8 @@ phone_number (10 digits only, strip formatting):
   "my number is 214-555-0192" → 2145550192
   "call me at (800) 123 4567" → 8001234567
   "+1 234 567 8901" → 2345678901 (strip country code)
+  "plus one 234 567 8901" → 2345678901 (strip spoken plus one)
+  "plus 1 234 567 8901" → 2345678901
 
 address_line_1:
   "I live at 123 Main Street" → 123 Main Street

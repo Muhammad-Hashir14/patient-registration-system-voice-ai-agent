@@ -11,7 +11,9 @@ US_STATES = {
 
 def normalize_phone(phone: str) -> str | None:
     """Strip non-digits, validate US 10-digit phone number."""
-    digits = re.sub(r"\D", "", phone)
+    # Handle spoken "plus" → strip it (e.g. "plus 1 234 567 8901")
+    cleaned = re.sub(r"(?i)^\s*plus\s*", "", phone.strip())
+    digits = re.sub(r"\D", "", cleaned)
     if digits.startswith("1") and len(digits) == 11:
         digits = digits[1:]
     if len(digits) == 10:
