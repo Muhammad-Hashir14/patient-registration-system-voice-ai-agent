@@ -7,7 +7,7 @@ Usage:
 """
 import requests
 
-VAPI_API_KEY = "bc583003-676e-4bf9-93fc-f0b2210dfbee"
+VAPI_API_KEY = "b2c8f50d-f76e-4bb4-8116-13f1f20f88c4"
 VAPI_BASE = "https://api.vapi.ai"
 RAILWAY_URL = "https://web-production-82a93.up.railway.app"
 
@@ -45,7 +45,7 @@ ASSISTANT_PAYLOAD = {
         "language": "en",
     },
     "endCallMessage": "Thank you. Have a great day!",
-    "endCallPhrases": [],
+    "endCallPhrases": ["have a great day"],
     "silenceTimeoutSeconds": 60,
     "maxDurationSeconds": 600,
     "server": {
