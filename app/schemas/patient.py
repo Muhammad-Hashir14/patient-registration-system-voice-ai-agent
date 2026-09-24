@@ -1,7 +1,5 @@
 from datetime import date, datetime
-from typing import Any
-from pydantic import BaseModel, field_validator, model_validator
-import re
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 REQUIRED_FIELDS = [
@@ -18,6 +16,8 @@ ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
 
 class PatientCreate(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
     first_name: str
     last_name: str
     date_of_birth: date
@@ -35,14 +35,16 @@ class PatientCreate(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
 
-    @field_validator("first_name", "last_name")
+    @field_validator("date_of_birth", mode="before")
     @classmethod
-    def validate_name(cls, v: str) -> str:
-        from app.utils.validation import validate_name
-        result = validate_name(v)
-        if not result:
-            raise ValueError("Name must be 1-50 characters, letters, hyphens, or apostrophes only.")
-        return result
+    def parse_dob(cls, v) -> date:
+        if isinstance(v, date):
+            return v
+        try:
+            from dateutil import parser as dp
+            return dp.parse(str(v)).date()
+        except Exception:
+            raise ValueError(f"Cannot parse '{v}' as a date. Use MM/DD/YYYY format.")
 
     @field_validator("date_of_birth")
     @classmethod
@@ -52,6 +54,15 @@ class PatientCreate(BaseModel):
         if v.year < 1900:
             raise ValueError("Date of birth seems too far in the past.")
         return v
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        from app.utils.validation import validate_name
+        result = validate_name(v)
+        if not result:
+            raise ValueError("Name must be 1-50 characters, letters, hyphens, or apostrophes only.")
+        return result
 
     @field_validator("phone_number")
     @classmethod
@@ -118,6 +129,17 @@ class PatientUpdate(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
 
+    @field_validator("date_of_birth", mode="before")
+    @classmethod
+    def parse_dob(cls, v) -> date | None:
+        if v is None or isinstance(v, date):
+            return v
+        try:
+            from dateutil import parser as dp
+            return dp.parse(str(v)).date()
+        except Exception:
+            raise ValueError(f"Cannot parse '{v}' as a date.")
+
     @field_validator("first_name", "last_name")
     @classmethod
     def validate_name(cls, v: str | None) -> str | None:
@@ -153,6 +175,8 @@ class PatientUpdate(BaseModel):
 
 
 class PatientResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     patient_id: str
     first_name: str
     last_name: str
@@ -172,6 +196,3 @@ class PatientResponse(BaseModel):
     emergency_contact_phone: str | None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

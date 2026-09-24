@@ -157,17 +157,27 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             )
 
     elif status == "optional_offered":
-        # Extract any optional fields the caller provides
-        # Then move to confirmation regardless of whether they gave any
-        status = "pending_confirmation"
-        summary = registration_service.format_patient_summary(
-            {k: v for k, v in patient_data.items() if not k.startswith("_")}
-        )
-        response_message = (
-            f"Perfect. Let me read everything back to you:\n\n"
-            f"{summary}\n\n"
-            f"Does everything look correct? Please say yes to confirm or let me know what to change."
-        )
+        # Move to confirmation only when caller declines optional fields or after they've provided them
+        msg_lower = user_message.lower()
+        declined = any(w in msg_lower for w in ["no", "nope", "skip", "that's all", "thats all", "no thanks", "none"])
+        # If caller is still providing optional info, stay in optional_offered
+        has_optional = any(k in analysis.extracted_fields for k in [
+            "insurance_provider", "insurance_member_id", "emergency_contact_name",
+            "emergency_contact_phone", "preferred_language", "email"
+        ])
+        accepted = any(w in msg_lower for w in ["yes", "yeah", "sure", "ok", "okay", "please"])
+        if declined or (has_optional and not accepted):
+            # Caller provided optional fields or declined — move to confirmation
+            status = "pending_confirmation"
+            summary = registration_service.format_patient_summary(
+                {k: v for k, v in patient_data.items() if not k.startswith("_")}
+            )
+            response_message = (
+                f"Perfect. Let me read everything back to you: "
+                f"{summary} "
+                f"Does everything look correct? Please say yes to confirm or let me know what to change."
+            )
+        # else: caller said yes or is still providing info — let Gemini's suggested_response guide them
 
     # --- Persist state ---
     history.append({"role": "user", "content": user_message})

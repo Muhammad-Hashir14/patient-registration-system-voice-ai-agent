@@ -134,6 +134,7 @@ def attempt_save_patient(db: Session, patient_data: dict) -> tuple[object | None
     """
     schema, errors = validate_patient_data(patient_data)
     if errors:
+        logger.error(f"[SAVE FAILED] validation errors: {errors} | data: {patient_data}")
         return None, "There are some issues: " + "; ".join(errors)
 
     existing = patient_service.find_by_phone(db, schema.phone_number)
