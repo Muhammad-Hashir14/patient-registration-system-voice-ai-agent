@@ -1,8 +1,6 @@
 import json
 import logging
-import time
-from google import genai
-from google.genai import types
+from groq import Groq
 from app.core.config import settings
 from app.ai.schemas import ConversationAnalysis
 
@@ -11,15 +9,13 @@ logger = logging.getLogger(__name__)
 _client = None
 
 
-def _get_client() -> genai.Client:
+def _get_client() -> Groq:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = Groq(api_key=settings.GROQ_API_KEY)
     return _client
 
 
-# Single source of truth for the system prompt.
-# Gemini handles NLU only — backend owns all state, validation, and DB ops.
 SYSTEM_PROMPT = """You are a medical patient registration NER (Named Entity Recognition) extractor.
 Your ONLY job: read what the caller said and extract any patient registration fields present. Return JSON.
 The backend decides what to ask next — you just extract.
@@ -43,7 +39,6 @@ phone_number (10 digits only, strip formatting):
   "my number is 214-555-0192" → 2145550192
   "call me at (800) 123 4567" → 8001234567
   "+1 234 567 8901" → 2345678901 (strip country code)
-  "plus one two three four five six seven eight nine zero" → 1234567890 — wait, that's 10 after stripping +1 → extract 2345678901... always strip leading +1
 
 address_line_1:
   "I live at 123 Main Street" → 123 Main Street
@@ -58,7 +53,6 @@ sex (map to: male / female / other / decline to answer):
   "I'm a male" → male
   "female" → female
   "I'd rather not say" → decline to answer
-  "prefer not to answer" → decline to answer
 
 email (convert spoken format):
   "hashir at hotmail dot com" → hashir@hotmail.com
@@ -72,14 +66,6 @@ If caller says "actually", "I meant", "wait", "no it's", "sorry" followed by a c
 
 == CONFIRMATION ==
 confirmation_response: "yes" ONLY if caller is responding yes/correct/right to a summary readback. "no" if rejecting. null otherwise.
-
-== CONTEXT ==
-Already collected: {collected_data}
-Still missing: {missing_fields}
-Status: {registration_status}
-
-Conversation so far:
-{conversation_history}
 
 Return ONLY valid JSON — no markdown:
 {
@@ -105,48 +91,39 @@ def analyze_message(
         for t in conversation_history[-10:]
     )
 
-    # Hint so Gemini maps short answers to the right field
     context_hint = f"\nThe assistant just asked: \"{last_question}\" — map the caller's short answer to the appropriate field." if last_question else ""
 
     user_prompt = (
-        SYSTEM_PROMPT
-        .replace("{collected_data}", json.dumps(collected_data, default=str) if collected_data else "{}")
-        .replace("{missing_fields}", ", ".join(missing_fields) if missing_fields else "none")
-        .replace("{registration_status}", registration_status or "in_progress")
-        .replace("{conversation_history}", history_text or "None")
-    ) + context_hint + f"\n\nUser: {message}"
+        f"== CONTEXT ==\n"
+        f"Already collected: {json.dumps(collected_data, default=str) if collected_data else '{}'}\n"
+        f"Still missing: {', '.join(missing_fields) if missing_fields else 'none'}\n"
+        f"Status: {registration_status or 'in_progress'}\n\n"
+        f"Conversation so far:\n{history_text or 'None'}"
+        f"{context_hint}\n\n"
+        f"User: {message}"
+    )
 
     client = _get_client()
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.3,
+        max_tokens=600,
+    )
 
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.3,
-                    max_output_tokens=600,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
-            )
-            raw = response.text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            parsed = json.loads(raw.strip())
-            parsed.setdefault("uncertain_fields", [])
-            return ConversationAnalysis(**parsed)
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON from Gemini: {e}\nRaw: {raw}")
-            raise ValueError(f"LLM returned invalid JSON: {e}")
-        except Exception as e:
-            if "503" in str(e) and attempt < 2:
-                wait = 2 ** attempt
-                logger.warning(f"Gemini 503, retrying in {wait}s (attempt {attempt+1}/3)")
-                time.sleep(wait)
-                continue
-            logger.error(f"Gemini call failed: {e}")
-            print(f"[GEMINI ERROR] {e}")
-            raise
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    try:
+        parsed = json.loads(raw.strip())
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON from Groq: {e}\nRaw: {raw}")
+        raise ValueError(f"LLM returned invalid JSON: {e}")
+
+    parsed.setdefault("uncertain_fields", [])
+    return ConversationAnalysis(**parsed)
