@@ -47,6 +47,9 @@ ASSISTANT_PAYLOAD = {
         "url": f"{RAILWAY_URL}/vapi",
         "timeoutSeconds": 60,
     },
+    "startSpeakingPlan": {
+        "waitSeconds": 1.5,
+    },
 }
 
 
