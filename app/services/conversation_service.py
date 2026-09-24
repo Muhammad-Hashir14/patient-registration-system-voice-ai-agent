@@ -85,25 +85,22 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     # --- Apply extracted/corrected fields ---
     validation_errors = []
     uncertain = set()
+    asking_for_first = "first name" in last_question.lower()
+    asking_for_last = "last name" in last_question.lower()
+
     if analysis.extracted_fields or analysis.corrected_fields:
         uncertain = set(analysis.uncertain_fields or [])
         safe_extracted = {k: v for k, v in analysis.extracted_fields.items() if k not in uncertain}
 
-        # Backend-level single-name detection — don't trust Gemini alone for this.
-        # If only first_name was extracted and last_name is missing and no last_name in message,
-        # treat it as ambiguous unless the last question was specifically asking for first or last name.
         extracted_keys = set(safe_extracted.keys())
-        asking_for_first = "first name" in last_question.lower()
-        asking_for_last = "last name" in last_question.lower()
         if (
             "first_name" in extracted_keys
             and "last_name" not in extracted_keys
-            and not patient_data.get("first_name")  # not already collected
-            and not patient_data.get("last_name")    # not already collected
+            and not patient_data.get("first_name")
+            and not patient_data.get("last_name")
             and not asking_for_first
             and not asking_for_last
         ):
-            # Single name given with no context — store as pending and ask
             patient_data["_pending_name"] = safe_extracted.pop("first_name")
             uncertain.add("first_name")
         elif "name_ambiguous" in (analysis.extracted_fields or {}):
