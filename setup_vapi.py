@@ -29,6 +29,7 @@ ASSISTANT_PAYLOAD = {
         "url": f"{RAILWAY_URL}/vapi/chat",
         "model": "gemini",
         "messages": [],
+        "stream": True,
     },
     "voice": {
         "provider": "vapi",
