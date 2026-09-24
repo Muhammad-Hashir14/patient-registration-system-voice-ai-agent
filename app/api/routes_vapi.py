@@ -60,6 +60,7 @@ async def _process_and_stream(session_id: str, user_text: str | None):
     try:
         if not user_text:
             reply = "I didn't catch that. Could you please repeat?"
+            is_completed = False
         else:
             logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
 
@@ -74,16 +75,18 @@ async def _process_and_stream(session_id: str, user_text: str | None):
 
             result = await asyncio.get_event_loop().run_in_executor(None, _run)
             reply = result["message"]
+            is_completed = result.get("registration_status") == "completed"
             logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
     except Exception as e:
         logger.error(f"[VAPI CHAT ERROR] {e}", exc_info=True)
         reply = "I'm sorry, I had a technical issue. Could you please repeat that?"
+        is_completed = False
 
-    async for chunk in _stream_response(reply):
+    async for chunk in _stream_response(reply, end_call=is_completed):
         yield chunk
 
 
-async def _stream_response(content: str):
+async def _stream_response(content: str, end_call: bool = False):
     """Yield OpenAI-compatible SSE chunks word by word, then [DONE]."""
     words = content.split(" ")
     for i, word in enumerate(words):
@@ -94,6 +97,24 @@ async def _stream_response(content: str):
             "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": None}],
         }
         yield f"data: {json.dumps(chunk)}\n\n"
+    if end_call:
+        # Signal Vapi to hang up after TTS finishes
+        end_chunk = {
+            "id": "chatcmpl-vapi",
+            "object": "chat.completion.chunk",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "id": "end_call",
+                        "type": "function",
+                        "function": {"name": "end_call", "arguments": "{}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+        }
+        yield f"data: {json.dumps(end_chunk)}\n\n"
     done_chunk = {
         "id": "chatcmpl-vapi",
         "object": "chat.completion.chunk",

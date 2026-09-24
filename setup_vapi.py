@@ -27,8 +27,13 @@ ASSISTANT_PAYLOAD = {
     "model": {
         "provider": "custom-llm",
         "url": f"{RAILWAY_URL}/vapi",
-        "model": "gemini",
+        "model": "groq",
         "messages": [],
+        "tools": [
+            {
+                "type": "endCall",
+            }
+        ],
     },
     "voice": {
         "provider": "vapi",

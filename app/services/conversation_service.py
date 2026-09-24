@@ -213,7 +213,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             else:
                 status = "completed"
                 logger.info(f"[REGISTRATION COMPLETE] session={session_id} patient_id={patient.patient_id}")
-                response_message = f"You're all set, {patient_data.get('first_name')}! Your registration is complete. Your patient ID is {patient.patient_id}. Have a great day!"
+                response_message = f"You are all set, {patient_data.get('first_name')}! Your registration is complete. Have a great day!"
         elif analysis.confirmation_response == "no":
             status = "in_progress"
             response_message = "No problem. Which field would you like to change? For example, name, date of birth, phone number, or address?"

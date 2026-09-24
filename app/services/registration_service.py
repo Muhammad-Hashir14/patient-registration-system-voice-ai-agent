@@ -13,11 +13,23 @@ def get_missing_required_fields(patient_data: dict) -> list[str]:
 
 
 def format_patient_summary(patient_data: dict) -> str:
+    # Format date as "May 14, 2002" for TTS readability
+    dob_raw = patient_data.get('date_of_birth', '')
+    try:
+        from dateutil import parser as dp
+        dob = dp.parse(str(dob_raw)).strftime("%B %d, %Y")
+    except Exception:
+        dob = dob_raw
+
+    # Format phone as "123 456 7890" so TTS reads it naturally
+    phone_raw = str(patient_data.get('phone_number', ''))
+    phone = f"{phone_raw[:3]} {phone_raw[3:6]} {phone_raw[6:]}" if len(phone_raw) == 10 else phone_raw
+
     parts = [
         f"{patient_data.get('first_name', '')} {patient_data.get('last_name', '')}",
-        f"date of birth {patient_data.get('date_of_birth', '')}",
+        f"date of birth {dob}",
         f"gender {patient_data.get('sex', '')}",
-        f"phone {patient_data.get('phone_number', '')}",
+        f"phone {phone}",
         f"address {patient_data.get('address_line_1', '')}"
         + (f" {patient_data.get('address_line_2')}" if patient_data.get('address_line_2') else ""),
         f"{patient_data.get('city', '')}, {patient_data.get('state', '')} {patient_data.get('zip_code', '')}",
