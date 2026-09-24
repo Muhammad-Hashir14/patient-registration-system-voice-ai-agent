@@ -124,26 +124,18 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             single_word_input = len(user_words) == 1
             both_names_missing = not patient_data.get("first_name") and not patient_data.get("last_name")
             name_extracted = "first_name" in extracted_keys or "last_name" in extracted_keys
+            # Only treat as ambiguous if BOTH names are missing and we weren't asking for a specific one
             if (
                 single_word_input
                 and both_names_missing
                 and name_extracted
                 and not asking_for_first
                 and not asking_for_last
+                and not patient_data.get("_pending_name")
             ):
-                # Single word — could be first or last name, ask to clarify
                 name_value = safe_extracted.pop("first_name", None) or safe_extracted.pop("last_name", None)
                 patient_data["_pending_name"] = name_value
                 uncertain.update(["first_name", "last_name"])
-            elif (
-                "first_name" in extracted_keys
-                and "last_name" not in extracted_keys
-                and both_names_missing
-                and not asking_for_first
-                and not asking_for_last
-            ):
-                patient_data["_pending_name"] = safe_extracted.pop("first_name")
-                uncertain.add("first_name")
 
         patient_data, validation_errors = registration_service.apply_extracted_fields(
             patient_data,
@@ -155,12 +147,17 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     pending_name = patient_data.get("_pending_name")
     if pending_name:
         msg_lower = user_message.lower()
-        if asking_for_first or any(w in msg_lower for w in ["first", "given"]):
+        if asking_for_first or any(w in msg_lower for w in ["first", "given", "my first"]):
             patient_data["first_name"] = pending_name
             patient_data.pop("_pending_name", None)
-        elif asking_for_last or any(w in msg_lower for w in ["last", "surname", "family"]):
+            logger.info(f"[NAME RESOLVED] first_name={pending_name}")
+        elif asking_for_last or any(w in msg_lower for w in ["last", "surname", "family", "my last"]):
             patient_data["last_name"] = pending_name
             patient_data.pop("_pending_name", None)
+            logger.info(f"[NAME RESOLVED] last_name={pending_name}")
+        else:
+            # Could not resolve — re-ask clearly
+            logger.info(f"[NAME UNRESOLVED] pending={pending_name} message={user_message}")
 
     # --- Recalculate missing after extraction ---
     missing = registration_service.get_missing_required_fields(
