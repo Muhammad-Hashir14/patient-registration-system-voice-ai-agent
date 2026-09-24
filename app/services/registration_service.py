@@ -13,24 +13,24 @@ def get_missing_required_fields(patient_data: dict) -> list[str]:
 
 
 def format_patient_summary(patient_data: dict) -> str:
-    lines = [
-        f"Name: {patient_data.get('first_name', '')} {patient_data.get('last_name', '')}",
-        f"Date of Birth: {patient_data.get('date_of_birth', '')}",
-        f"Sex: {patient_data.get('sex', '')}",
-        f"Phone: {patient_data.get('phone_number', '')}",
-        f"Address: {patient_data.get('address_line_1', '')}"
-        + (f", {patient_data.get('address_line_2')}" if patient_data.get('address_line_2') else ""),
-        f"City: {patient_data.get('city', '')}, {patient_data.get('state', '')} {patient_data.get('zip_code', '')}",
+    parts = [
+        f"{patient_data.get('first_name', '')} {patient_data.get('last_name', '')}",
+        f"date of birth {patient_data.get('date_of_birth', '')}",
+        f"gender {patient_data.get('sex', '')}",
+        f"phone {patient_data.get('phone_number', '')}",
+        f"address {patient_data.get('address_line_1', '')}"
+        + (f" {patient_data.get('address_line_2')}" if patient_data.get('address_line_2') else ""),
+        f"{patient_data.get('city', '')}, {patient_data.get('state', '')} {patient_data.get('zip_code', '')}",
     ]
     if patient_data.get("email"):
-        lines.append(f"Email: {patient_data['email']}")
+        parts.append(f"email {patient_data['email']}")
     if patient_data.get("insurance_provider"):
-        lines.append(f"Insurance: {patient_data['insurance_provider']}" +
-                     (f" (ID: {patient_data['insurance_member_id']})" if patient_data.get('insurance_member_id') else ""))
+        parts.append(f"insurance {patient_data['insurance_provider']}"
+                     + (f" member ID {patient_data['insurance_member_id']}" if patient_data.get('insurance_member_id') else ""))
     if patient_data.get("emergency_contact_name"):
-        lines.append(f"Emergency Contact: {patient_data['emergency_contact_name']}" +
-                     (f" — {patient_data['emergency_contact_phone']}" if patient_data.get('emergency_contact_phone') else ""))
-    return "\n".join(lines)
+        parts.append(f"emergency contact {patient_data['emergency_contact_name']}"
+                     + (f" at {patient_data['emergency_contact_phone']}" if patient_data.get('emergency_contact_phone') else ""))
+    return ", ".join(parts)
 
 
 def validate_patient_data(patient_data: dict) -> tuple[PatientCreate | None, list[str]]:

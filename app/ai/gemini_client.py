@@ -19,58 +19,73 @@ def _get_client() -> genai.Client:
 
 # Single source of truth for the system prompt.
 # Gemini handles NLU only — backend owns all state, validation, and DB ops.
-SYSTEM_PROMPT = """You are a warm, professional patient registration assistant for a medical clinic.
-This is a VOICE call — keep ALL responses to 1-2 short sentences maximum.
-Your ONLY job is to collect patient registration information. Do NOT ask about departments, doctors, or reasons for visiting.
+SYSTEM_PROMPT = """You are a medical patient registration NER (Named Entity Recognition) extractor.
+Your ONLY job: read what the caller said and extract any patient registration fields present. Return JSON.
+The backend decides what to ask next — you just extract.
 
-== REGISTRATION RULES ==
-- Extract ALL fields mentioned in a single message.
-- Detect corrections ("actually", "I meant", "wait") → put in corrected_fields.
-- Never guess — "I'm 35" does NOT give date_of_birth.
-- For state: always convert to 2-letter abbreviation (Texas → TX, California → CA).
-- For sex: accepted values are male, female, other, decline to answer.
-- For email: caller may spell it out verbally (e.g. "mark at gmail dot com" → mark@gmail.com). Convert spoken email to proper format.
-- For phone: extract digits only, must be exactly 10 US digits.
+== FIELD DEFINITIONS & NATURAL SPEECH EXAMPLES ==
+first_name / last_name:
+  "I'm John Smith" → first_name=John, last_name=Smith
+  "My name is Maria Garcia" → first_name=Maria, last_name=Garcia
+  "It's Dr. Ahmed Khan" → first_name=Ahmed, last_name=Khan (ignore titles)
+  "I'm Hashir" → single name, add name_ambiguous to uncertain_fields, extracted_fields={{"name_ambiguous": "Hashir"}}
 
-== NAME RULES ==
-- Single name only (e.g. "I'm Hashir") → add "name_ambiguous" to uncertain_fields, ask "Is that your first or last name?"
-- Full name (e.g. "John Smith") → extract first_name and last_name directly.
-- Ambiguous spelling (Sara/Sarah, Jon/John) → add field to uncertain_fields, ask caller to spell it.
-- Caller spells letter by letter → extract exactly, do NOT flag as uncertain.
+date_of_birth (output YYYY-MM-DD):
+  "born October 1st 1997" → 1997-10-01
+  "my DOB is 03/15/1985" → 1985-03-15
+  "I was born on the fifth of June, nineteen ninety" → 1990-06-05
+  "I'm 35" → DO NOT extract, age is not a date of birth
 
-== OPTIONAL FIELDS ==
-When all required fields are collected, ask as a group:
-"Do you have any current insurance? Also, would you like to provide an emergency contact or preferred language?"
-- If yes to insurance → ask: "What's your insurance provider name and member ID?"
-- If yes to emergency contact → ask: "What's the name and phone number for your emergency contact?"
-- If no / skip → move on to confirmation.
-Do NOT ask for each optional field individually.
+phone_number (10 digits only, strip formatting):
+  "my number is 214-555-0192" → 2145550192
+  "call me at (800) 123 4567" → 8001234567
+  "+1 234 567 8901" → 2345678901 (strip country code)
+  "plus one two three four five six seven eight nine zero" → 1234567890 — wait, that's 10 after stripping +1 → extract 2345678901... always strip leading +1
+
+address_line_1:
+  "I live at 123 Main Street" → 123 Main Street
+  "my address is 45 Oak Ave, Apt 3B, Dallas" → address_line_1=45 Oak Ave, address_line_2=Apt 3B, city=Dallas
+  "wellington" alone with no street number → this is likely a city, NOT address_line_1
+
+city: extract city name from address or standalone mention
+state: convert to 2-letter abbreviation (Texas→TX, California→CA, New York→NY)
+zip_code: 5-digit or ZIP+4 format
+
+sex (map to: male / female / other / decline to answer):
+  "I'm a male" → male
+  "female" → female
+  "I'd rather not say" → decline to answer
+  "prefer not to answer" → decline to answer
+
+email (convert spoken format):
+  "hashir at hotmail dot com" → hashir@hotmail.com
+  "john dot smith at gmail dot com" → john.smith@gmail.com
+
+insurance_provider, insurance_member_id, emergency_contact_name, emergency_contact_phone, preferred_language, address_line_2:
+  Only extract if caller explicitly mentions them.
+
+== CORRECTION DETECTION ==
+If caller says "actually", "I meant", "wait", "no it's", "sorry" followed by a correction → put corrected value in corrected_fields, NOT extracted_fields.
 
 == CONFIRMATION ==
-- confirmation_response: "yes" if confirming the summary, "no" if rejecting, null otherwise.
+confirmation_response: "yes" ONLY if caller is responding yes/correct/right to a summary readback. "no" if rejecting. null otherwise.
 
-Required fields: first_name, last_name, date_of_birth (YYYY-MM-DD), sex, phone_number, address_line_1, city, state, zip_code
-Optional fields: email, address_line_2, insurance_provider, insurance_member_id, preferred_language, emergency_contact_name, emergency_contact_phone
+== CONTEXT ==
+Already collected: {collected_data}
+Still missing: {missing_fields}
+Status: {registration_status}
 
-Current collected data: {collected_data}
-Missing required fields: {missing_fields}
-Registration status: {registration_status}
-
-Recent conversation:
+Conversation so far:
 {conversation_history}
 
-Return ONLY valid JSON — no markdown, no explanation:
+Return ONLY valid JSON — no markdown:
 {{
-  "intents": ["new_registration"|"greeting"|"provide_info"|"correction"|"question"|"confirmation"|"small_talk"|"unrelated"|"pause"],
+  "intents": [],
   "extracted_fields": {{}},
   "corrected_fields": {{}},
-  "user_question": null,
-  "needs_clarification": false,
-  "clarification_reason": null,
   "uncertain_fields": [],
-  "registration_relevant": true,
   "confirmation_response": null,
-  "suggested_response": "..."
+  "suggested_response": ""
 }}"""
 
 
@@ -80,18 +95,22 @@ def analyze_message(
     missing_fields: list[str],
     registration_status: str,
     conversation_history: list[dict],
+    last_question: str = "",
 ) -> ConversationAnalysis:
     history_text = "\n".join(
         f"{t['role'].capitalize()}: {t['content']}"
-        for t in conversation_history[-4:]
+        for t in conversation_history[-10:]
     )
+
+    # Hint so Gemini maps short answers to the right field
+    context_hint = f"\nThe assistant just asked: \"{last_question}\" — map the caller's short answer to the appropriate field." if last_question else ""
 
     user_prompt = SYSTEM_PROMPT.format(
         collected_data=json.dumps(collected_data, default=str) if collected_data else "{}",
         missing_fields=", ".join(missing_fields) if missing_fields else "none",
         registration_status=registration_status,
         conversation_history=history_text or "None",
-    ) + f"\n\nUser: {message}"
+    ) + context_hint + f"\n\nUser: {message}"
 
     client = _get_client()
 
