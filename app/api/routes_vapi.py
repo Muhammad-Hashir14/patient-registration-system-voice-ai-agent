@@ -40,6 +40,21 @@ async def vapi_chat(request: Request):
             user_text = m.get("content", "").strip()
             break
 
+    return StreamingResponse(
+        _process_and_stream(session_id, user_text),
+        media_type="text/event-stream",
+    )
+
+
+async def _process_and_stream(session_id: str, user_text: str | None):
+    # Yield empty delta immediately so Vapi sees connection alive (prevents timeout)
+    empty = {
+        "id": "chatcmpl-vapi",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+    }
+    yield f"data: {json.dumps(empty)}\n\n"
+
     try:
         if not user_text:
             reply = "I didn't catch that. Could you please repeat?"
@@ -62,10 +77,8 @@ async def vapi_chat(request: Request):
         logger.error(f"[VAPI CHAT ERROR] {e}", exc_info=True)
         reply = "I'm sorry, I had a technical issue. Could you please repeat that?"
 
-    return StreamingResponse(
-        _stream_response(reply),
-        media_type="text/event-stream",
-    )
+    async for chunk in _stream_response(reply):
+        yield chunk
 
 
 async def _stream_response(content: str):
