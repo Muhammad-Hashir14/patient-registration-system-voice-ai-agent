@@ -40,6 +40,8 @@ async def vapi_chat(request: Request):
             user_text = m.get("content", "").strip()
             break
 
+    logger.info(f"[VAPI MESSAGES] roles={[m.get('role') for m in messages]} user_text={user_text!r}")
+
     return StreamingResponse(
         _process_and_stream(session_id, user_text),
         media_type="text/event-stream",
