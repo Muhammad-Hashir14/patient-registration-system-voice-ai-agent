@@ -145,6 +145,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
 
     # --- Resolve pending ambiguous name ---
     pending_name = patient_data.get("_pending_name")
+    name_just_resolved = False
     if pending_name:
         msg_lower = user_message.lower()
         # Check user's message keywords first (most reliable signal)
@@ -157,10 +158,12 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
         if says_last or (asking_for_last and not asking_for_first) or llm_resolved_last:
             patient_data["last_name"] = pending_name
             patient_data.pop("_pending_name", None)
+            name_just_resolved = True
             logger.info(f"[NAME RESOLVED] last_name={pending_name}")
         elif says_first or (asking_for_first and not asking_for_last) or llm_resolved_first:
             patient_data["first_name"] = pending_name
             patient_data.pop("_pending_name", None)
+            name_just_resolved = True
             logger.info(f"[NAME RESOLVED] first_name={pending_name}")
         else:
             logger.info(f"[NAME UNRESOLVED] pending={pending_name} message={user_message}")
@@ -183,6 +186,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     newly_extracted = [
         k for k in (analysis.extracted_fields or {})
         if k in ECHO_FIELDS and k not in uncertain and k in patient_data and not validation_errors
+        and not name_just_resolved  # don't echo during name resolution turns
     ]
     echo_prefix = " ".join(ECHO_FIELDS[k](patient_data[k]) for k in newly_extracted if k in patient_data)
 
