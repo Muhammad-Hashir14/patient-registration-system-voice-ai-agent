@@ -105,13 +105,14 @@ def analyze_message(
 
     client = _get_client()
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="qwen/qwen3.8-27b",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.3,
         max_tokens=600,
+        extra_body={"thinking": {"type": "disabled"}},
     )
 
     raw = response.choices[0].message.content.strip()
