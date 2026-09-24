@@ -126,6 +126,7 @@ def analyze_message(
                 config=types.GenerateContentConfig(
                     temperature=0.3,
                     max_output_tokens=600,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             )
