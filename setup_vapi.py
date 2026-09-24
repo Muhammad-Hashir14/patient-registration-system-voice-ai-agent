@@ -22,25 +22,13 @@ HEADERS = {
 # Vapi handles only STT and TTS — our /vapi endpoint drives the conversation.
 ASSISTANT_PAYLOAD = {
     "name": "Patient Registration Agent",
-    "firstMessage": (
-        "Hello! I'm your patient registration assistant. "
-        "Are you calling to register as a new patient, look up your existing information, or update your record?"
-    ),
+    "firstMessage": "Hello! I'm your patient registration assistant. May I have your full name to get started?",
     "serverUrl": f"{RAILWAY_URL}/vapi",
     "model": {
         "provider": "custom-llm",
         "url": f"{RAILWAY_URL}/vapi/chat",
         "model": "gemini",
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a patient registration assistant. "
-                    "Keep all responses under 2 sentences. "
-                    "This is a voice call — be warm, clear, and concise."
-                ),
-            }
-        ],
+        "messages": [],
     },
     "voice": {
         "provider": "vapi",
@@ -52,7 +40,7 @@ ASSISTANT_PAYLOAD = {
         "language": "en",
     },
     "endCallMessage": "Thank you. Goodbye!",
-    "endCallPhrases": ["goodbye", "bye", "thank you goodbye", "that's all"],
+    "endCallPhrases": ["goodbye", "bye", "thank you goodbye"],
     "silenceTimeoutSeconds": 30,
     "maxDurationSeconds": 600,
 }
@@ -67,16 +55,16 @@ def sync_assistant() -> str | None:
         assistant_id = existing["id"]
         r = requests.patch(f"{VAPI_BASE}/assistant/{assistant_id}", json=ASSISTANT_PAYLOAD, headers=HEADERS)
         if r.status_code not in (200, 201):
-            print(f"❌ Failed to update assistant: {r.text}")
+            print(f"FAILED to update assistant: {r.text}")
             return None
-        print(f"✅ Updated assistant: {assistant_id}")
+        print(f"Updated assistant: {assistant_id}")
     else:
         r = requests.post(f"{VAPI_BASE}/assistant", json=ASSISTANT_PAYLOAD, headers=HEADERS)
         if r.status_code not in (200, 201):
-            print(f"❌ Failed to create assistant: {r.text}")
+            print(f"FAILED to create assistant: {r.text}")
             return None
         assistant_id = r.json()["id"]
-        print(f"✅ Created assistant: {assistant_id}")
+        print(f"Created assistant: {assistant_id}")
 
     return assistant_id
 
@@ -87,7 +75,7 @@ def get_phone_numbers() -> list:
 
 
 def main():
-    print(f"Syncing Vapi assistant → {RAILWAY_URL}")
+    print(f"Syncing Vapi assistant -> {RAILWAY_URL}")
     assistant_id = sync_assistant()
     if not assistant_id:
         return
@@ -96,12 +84,12 @@ def main():
     numbers = get_phone_numbers()
     if numbers:
         for n in numbers:
-            print(f"📞 {n.get('number')} — call this to test!")
+            print(f"  {n.get('number')} - call this to test!")
     else:
         print("No phone numbers. Use the Talk button at https://dashboard.vapi.ai")
 
-    print(f"\n✅ Server URL: {RAILWAY_URL}/vapi")
-    print("✅ Go to https://dashboard.vapi.ai → Patient Registration Agent → Talk")
+    print(f"\nServer URL: {RAILWAY_URL}/vapi")
+    print("Go to https://dashboard.vapi.ai -> Patient Registration Agent -> Talk")
 
 
 if __name__ == "__main__":
