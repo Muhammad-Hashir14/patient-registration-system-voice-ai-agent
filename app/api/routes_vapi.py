@@ -20,38 +20,36 @@ async def vapi_webhook(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/vapi/chat")
 async def vapi_chat(request: Request, db: Session = Depends(get_db)):
-    """
-    OpenAI-compatible chat completions endpoint for Vapi custom LLM.
-    Vapi sends the full conversation as messages array.
-    We extract the last user message and run it through our registration agent.
-    """
-    body = await request.json()
-    messages = body.get("messages", [])
-    call_id = body.get("call", {}).get("id", "unknown")
-    session_id = f"vapi-{call_id}"
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+        call_id = body.get("call", {}).get("id", "unknown")
+        session_id = f"vapi-{call_id}"
 
-    # Get last user message
-    user_text = None
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            user_text = m.get("content", "").strip()
-            break
+        user_text = None
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                user_text = m.get("content", "").strip()
+                break
 
-    if not user_text:
-        return _chat_response("I didn't catch that. Could you please repeat?")
+        if not user_text:
+            return _chat_response("I didn't catch that. Could you please repeat?")
 
-    logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
+        logger.info(f"[VAPI CHAT] session={session_id} user={user_text}")
 
-    result = conversation_service.process_message(
-        db=db,
-        session_id=session_id,
-        user_message=user_text,
-    )
+        result = conversation_service.process_message(
+            db=db,
+            session_id=session_id,
+            user_message=user_text,
+        )
 
-    reply = result["message"]
-    logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
+        reply = result["message"]
+        logger.info(f"[VAPI CHAT] session={session_id} agent={reply}")
+        return _chat_response(reply)
 
-    return _chat_response(reply)
+    except Exception as e:
+        logger.error(f"[VAPI CHAT ERROR] {e}", exc_info=True)
+        return _chat_response("I'm sorry, I had a technical issue. Could you please repeat that?")
 
 
 def _chat_response(content: str) -> dict:
