@@ -1,3 +1,4 @@
+
 """
 Run this script ONCE to:
 1. Create/update Vapi assistant pointing to your local server
@@ -42,8 +43,8 @@ def create_vapi_assistant(server_url: str) -> str:
             ]
         },
         "voice": {
-            "provider": "playht",
-            "voiceId": "jennifer",
+            "provider": "vapi",
+            "voiceId": "Elliot",
         },
         "transcriber": {
             "provider": "deepgram",

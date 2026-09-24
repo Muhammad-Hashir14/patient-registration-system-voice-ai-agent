@@ -35,6 +35,15 @@ class PatientCreate(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
 
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        from app.utils.validation import validate_name
+        result = validate_name(v)
+        if not result:
+            raise ValueError("Name must be 1-50 characters, letters, hyphens, or apostrophes only.")
+        return result
+
     @field_validator("date_of_birth")
     @classmethod
     def dob_not_future(cls, v: date) -> date:
@@ -53,6 +62,15 @@ class PatientCreate(BaseModel):
             raise ValueError("Invalid US phone number. Please provide a 10-digit US phone number.")
         return result
 
+    @field_validator("state")
+    @classmethod
+    def validate_state(cls, v: str) -> str:
+        from app.utils.validation import validate_state
+        result = validate_state(v)
+        if not result:
+            raise ValueError("State must be a valid 2-letter US state abbreviation (e.g. TX, CA).")
+        return result
+
     @field_validator("zip_code")
     @classmethod
     def validate_zip(cls, v: str) -> str:
@@ -68,7 +86,7 @@ class PatientCreate(BaseModel):
         from app.utils.validation import validate_sex
         result = validate_sex(v)
         if not result:
-            raise ValueError("Sex must be male, female, other, or prefer not to say.")
+            raise ValueError("Sex must be male, female, other, or decline to answer.")
         return result
 
     @field_validator("email")
@@ -100,35 +118,26 @@ class PatientUpdate(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
 
-    @field_validator("date_of_birth")
+    @field_validator("first_name", "last_name")
     @classmethod
-    def dob_not_future(cls, v: date | None) -> date | None:
+    def validate_name(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if v > date.today():
-            raise ValueError("Date of birth cannot be in the future.")
-        return v
-
-    @field_validator("phone_number")
-    @classmethod
-    def validate_phone(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        from app.utils.validation import normalize_phone
-        result = normalize_phone(v)
+        from app.utils.validation import validate_name
+        result = validate_name(v)
         if not result:
-            raise ValueError("Invalid US phone number.")
+            raise ValueError("Name must be 1-50 characters, letters, hyphens, or apostrophes only.")
         return result
 
-    @field_validator("zip_code")
+    @field_validator("state")
     @classmethod
-    def validate_zip(cls, v: str | None) -> str | None:
+    def validate_state(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        from app.utils.validation import normalize_zip
-        result = normalize_zip(v)
+        from app.utils.validation import validate_state
+        result = validate_state(v)
         if not result:
-            raise ValueError("Invalid US ZIP code.")
+            raise ValueError("State must be a valid 2-letter US state abbreviation (e.g. TX, CA).")
         return result
 
     @field_validator("sex")
@@ -139,18 +148,8 @@ class PatientUpdate(BaseModel):
         from app.utils.validation import validate_sex
         result = validate_sex(v)
         if not result:
-            raise ValueError("Sex must be male, female, other, or prefer not to say.")
+            raise ValueError("Sex must be male, female, other, or decline to answer.")
         return result
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        from app.utils.validation import validate_email
-        if not validate_email(v):
-            raise ValueError("Invalid email address.")
-        return v.strip()
 
 
 class PatientResponse(BaseModel):

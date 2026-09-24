@@ -83,6 +83,8 @@ User: {message}"""
             if raw.startswith("json"):
                 raw = raw[4:]
         parsed = json.loads(raw.strip())
+        # Ensure uncertain_fields always exists
+        parsed.setdefault("uncertain_fields", [])
         return ConversationAnalysis(**parsed)
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON from Gemini: {e}")

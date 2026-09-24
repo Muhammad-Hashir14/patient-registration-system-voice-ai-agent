@@ -74,16 +74,22 @@ def apply_extracted_fields(
 
 
 def _validate_single_field(field: str, value) -> str | None:
-    from app.utils.validation import normalize_phone, normalize_zip, validate_sex, validate_email
-    if field == "phone_number":
+    from app.utils.validation import normalize_phone, normalize_zip, validate_sex, validate_email, validate_state, validate_name
+    if field in ("first_name", "last_name"):
+        if not validate_name(str(value)):
+            return f"'{value}' doesn't look like a valid name. Please use letters, hyphens, or apostrophes only (1-50 characters)."
+    elif field == "phone_number":
         if not normalize_phone(str(value)):
-            return f"'{value}' doesn't look like a valid US phone number. Could you double-check it?"
+            return f"'{value}' doesn't look like a valid US phone number. Please provide a 10-digit number."
+    elif field == "state":
+        if not validate_state(str(value)):
+            return f"'{value}' isn't a valid US state. Please provide a 2-letter abbreviation like TX or CA."
     elif field == "zip_code":
         if not normalize_zip(str(value)):
             return f"'{value}' doesn't look like a valid US ZIP code."
     elif field == "sex":
         if not validate_sex(str(value)):
-            return f"For sex, I can accept male, female, other, or prefer not to say."
+            return f"For sex, I can accept male, female, other, or decline to answer."
     elif field == "email":
         if not validate_email(str(value)):
             return f"'{value}' doesn't look like a valid email address."
@@ -100,13 +106,15 @@ def _validate_single_field(field: str, value) -> str | None:
 
 
 def _normalize_field(field: str, value):
-    from app.utils.validation import normalize_phone, normalize_zip, validate_sex
+    from app.utils.validation import normalize_phone, normalize_zip, validate_sex, validate_state
     if field == "phone_number":
         return normalize_phone(str(value))
     if field == "zip_code":
         return normalize_zip(str(value))
     if field == "sex":
         return validate_sex(str(value))
+    if field == "state":
+        return validate_state(str(value))
     if field == "date_of_birth":
         return str(_parse_date(value))
     return value

@@ -32,7 +32,9 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     history: list = list(session.conversation_history or [])
     status: str = session.registration_status
 
-    missing = registration_service.get_missing_required_fields(patient_data)
+    missing = registration_service.get_missing_required_fields(
+        {k: v for k, v in patient_data.items() if not k.startswith("_")}
+    )
 
     # --- Call Gemini ---
     try:
@@ -60,11 +62,30 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
     # --- Apply extracted/corrected fields ---
     validation_errors = []
     if analysis.extracted_fields or analysis.corrected_fields:
+        # Don't store fields Gemini flagged as spelling-uncertain yet
+        uncertain = set(analysis.uncertain_fields or [])
+        safe_extracted = {k: v for k, v in analysis.extracted_fields.items() if k not in uncertain}
+
+        # Handle single ambiguous name — store temporarily until caller clarifies
+        if "name_ambiguous" in uncertain and "name_ambiguous" in analysis.extracted_fields:
+            patient_data["_pending_name"] = analysis.extracted_fields["name_ambiguous"]
+
         patient_data, validation_errors = registration_service.apply_extracted_fields(
             patient_data,
-            analysis.extracted_fields,
+            safe_extracted,
             analysis.corrected_fields,
         )
+
+    # --- Resolve pending ambiguous name if caller just clarified ---
+    pending_name = patient_data.get("_pending_name")
+    if pending_name:
+        msg_lower = user_message.lower()
+        if any(w in msg_lower for w in ["first", "first name", "given"]):
+            patient_data["first_name"] = pending_name
+            patient_data.pop("_pending_name", None)
+        elif any(w in msg_lower for w in ["last", "last name", "surname", "family"]):
+            patient_data["last_name"] = pending_name
+            patient_data.pop("_pending_name", None)
 
     # --- Determine response ---
     response_message = analysis.suggested_response
@@ -91,6 +112,7 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
                 status = "in_progress"
             else:
                 status = "completed"
+                logger.info(f"[REGISTRATION COMPLETE] session={session_id} data={patient_data}")
                 response_message = (
                     f"You're all set! Your registration has been saved successfully. "
                     f"Your patient ID is {patient.patient_id}. Is there anything else I can help you with?"
@@ -122,16 +144,30 @@ def process_message(db: Session, session_id: str, user_message: str) -> dict:
             response_message = "Understood. Let's continue with a new registration. What would you like to change?"
 
     elif status == "in_progress":
-        missing = registration_service.get_missing_required_fields(patient_data)
-        if not missing and not validation_errors:
-            # All required fields collected — move to confirmation
-            status = "pending_confirmation"
-            summary = registration_service.format_patient_summary(patient_data)
+        missing = registration_service.get_missing_required_fields(
+            {k: v for k, v in patient_data.items() if not k.startswith("_")}
+        )
+        if not missing and not validation_errors and not patient_data.get("_pending_name"):
+            # All required fields collected — offer optional fields first
+            status = "optional_offered"
             response_message = (
-                f"Great, I have all the information I need. Let me read it back to you:\n\n"
-                f"{summary}\n\n"
-                f"Does everything look correct? Please say yes to confirm or let me know what to change."
+                "Great, I have all the required information. "
+                "I can also collect your insurance information, emergency contact, and preferred language. "
+                "Would you like to provide any of those?"
             )
+
+    elif status == "optional_offered":
+        # Extract any optional fields the caller provides
+        # Then move to confirmation regardless of whether they gave any
+        status = "pending_confirmation"
+        summary = registration_service.format_patient_summary(
+            {k: v for k, v in patient_data.items() if not k.startswith("_")}
+        )
+        response_message = (
+            f"Perfect. Let me read everything back to you:\n\n"
+            f"{summary}\n\n"
+            f"Does everything look correct? Please say yes to confirm or let me know what to change."
+        )
 
     # --- Persist state ---
     history.append({"role": "user", "content": user_message})
