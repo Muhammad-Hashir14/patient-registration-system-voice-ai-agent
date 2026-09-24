@@ -28,7 +28,7 @@ first_name / last_name:
   "I'm John Smith" → first_name=John, last_name=Smith
   "My name is Maria Garcia" → first_name=Maria, last_name=Garcia
   "It's Dr. Ahmed Khan" → first_name=Ahmed, last_name=Khan (ignore titles)
-  "I'm Hashir" → single name, add name_ambiguous to uncertain_fields, extracted_fields={{"name_ambiguous": "Hashir"}}
+  "I'm Hashir" → single name, add name_ambiguous to uncertain_fields, extracted_fields={"name_ambiguous": "Hashir"}
 
 date_of_birth (output YYYY-MM-DD):
   "born October 1st 1997" → 1997-10-01
@@ -79,14 +79,14 @@ Conversation so far:
 {conversation_history}
 
 Return ONLY valid JSON — no markdown:
-{{
+{
   "intents": [],
-  "extracted_fields": {{}},
-  "corrected_fields": {{}},
+  "extracted_fields": {},
+  "corrected_fields": {},
   "uncertain_fields": [],
   "confirmation_response": null,
   "suggested_response": ""
-}}"""
+}"""
 
 
 def analyze_message(
@@ -105,11 +105,12 @@ def analyze_message(
     # Hint so Gemini maps short answers to the right field
     context_hint = f"\nThe assistant just asked: \"{last_question}\" — map the caller's short answer to the appropriate field." if last_question else ""
 
-    user_prompt = SYSTEM_PROMPT.format(
-        collected_data=json.dumps(collected_data, default=str) if collected_data else "{}",
-        missing_fields=", ".join(missing_fields) if missing_fields else "none",
-        registration_status=registration_status,
-        conversation_history=history_text or "None",
+    user_prompt = (
+        SYSTEM_PROMPT
+        .replace("{collected_data}", json.dumps(collected_data, default=str) if collected_data else "{}")
+        .replace("{missing_fields}", ", ".join(missing_fields) if missing_fields else "none")
+        .replace("{registration_status}", registration_status or "in_progress")
+        .replace("{conversation_history}", history_text or "None")
     ) + context_hint + f"\n\nUser: {message}"
 
     client = _get_client()
