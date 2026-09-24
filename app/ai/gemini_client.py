@@ -112,7 +112,6 @@ def analyze_message(
         ],
         temperature=0.3,
         max_tokens=600,
-        extra_body={"thinking": {"type": "disabled"}},
     )
 
     raw = response.choices[0].message.content.strip()
